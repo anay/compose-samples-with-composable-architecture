@@ -24,6 +24,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.printToString
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.jetnews.ui.home.Address
+import com.example.jetnews.ui.home.Person
+import com.example.jetnews.ui.home.address
+import com.example.jetnews.ui.home.pincode
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test

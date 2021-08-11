@@ -16,18 +16,11 @@
 
 package com.example.jetnews.ui.home
 
-import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.ContentAlpha
 import androidx.compose.material.LocalContentAlpha
 import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -36,15 +29,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.jetnews.R
-import com.example.jetnews.data.posts.impl.posts
-import com.example.jetnews.model.Post
-import com.example.jetnews.ui.theme.JetnewsTheme
 
 @Composable
-fun PostCardTop(post: Post, modifier: Modifier = Modifier) {
+fun PostCardTop(post: PostState, modifier: Modifier = Modifier) {
     // TUTORIAL CONTENT STARTS HERE
     val typography = MaterialTheme.typography
     Column(
@@ -57,7 +46,7 @@ fun PostCardTop(post: Post, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .clip(shape = MaterialTheme.shapes.medium)
         Image(
-            painter = painterResource(post.imageId),
+            painter = painterResource(post.post.imageId),
             contentDescription = null, // decorative
             modifier = imageModifier,
             contentScale = ContentScale.Crop
@@ -65,12 +54,12 @@ fun PostCardTop(post: Post, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = post.title,
+            text = post.post.title,
             style = typography.h6,
             modifier = Modifier.padding(bottom = 8.dp)
         )
         Text(
-            text = post.metadata.author.name,
+            text = post.post.metadata.author.name,
             style = typography.subtitle2,
             modifier = Modifier.padding(bottom = 4.dp)
         )
@@ -80,8 +69,8 @@ fun PostCardTop(post: Post, modifier: Modifier = Modifier) {
                 text = stringResource(
                     id = R.string.home_post_min_read,
                     formatArgs = arrayOf(
-                        post.metadata.date,
-                        post.metadata.readTimeMinutes
+                        post.post.metadata.date,
+                        post.post.metadata.readTimeMinutes
                     )
                 ),
                 style = typography.subtitle2
@@ -90,35 +79,3 @@ fun PostCardTop(post: Post, modifier: Modifier = Modifier) {
     }
 }
 // TUTORIAL CONTENT ENDS HERE
-
-// Preview section
-
-@Preview("Default colors")
-@Composable
-fun TutorialPreview() {
-    TutorialPreviewTemplate()
-}
-
-@Preview("Dark theme", uiMode = UI_MODE_NIGHT_YES)
-@Composable
-fun TutorialPreviewDark() {
-    TutorialPreviewTemplate()
-}
-
-@Preview("Font scaling 1.5", fontScale = 1.5f)
-@Composable
-fun TutorialPreviewFontscale() {
-    TutorialPreviewTemplate()
-}
-
-@Composable
-fun TutorialPreviewTemplate() {
-    val previewPosts = posts.subList(1, 2)
-    val post = previewPosts[0]
-
-    JetnewsTheme {
-        Surface {
-            PostCardTop(post)
-        }
-    }
-}

@@ -16,12 +16,14 @@
 
 package com.example.jetnews.ui
 
+import android.net.Uri
 import androidx.compose.material.ScaffoldState
 import androidx.compose.material.rememberScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavHostController
+import androidx.navigation.NavOptions
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -85,7 +87,7 @@ fun JetnewsNavGraph(
  */
 class MainActions(navController: NavHostController) {
     val navigateToArticle: (String) -> Unit = { postId: String ->
-        navController.navigate("${MainDestinations.ARTICLE_ROUTE}/$postId")
+        navController.navigate(postId)
     }
     val upPress: () -> Unit = {
         navController.navigateUp()
