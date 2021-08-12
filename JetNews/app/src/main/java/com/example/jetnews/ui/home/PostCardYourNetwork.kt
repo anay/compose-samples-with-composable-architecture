@@ -44,35 +44,25 @@ import kotlinx.coroutines.flow.map
 data class PostCardPopularState(val post:Post)
 
 sealed class PostCardPopularAction{
-    data class NavigateToArticle(val id:String):PostCardPopularAction()
-    object None:PostCardPopularAction()
+    data class ExternalNavigateTo(val id:String):PostCardPopularAction()
 }
 
-class PostCardPopularEnvironment(
-    val navigateToArticle:(String) -> Flow<Unit>
-)
-
-val PostCardPopularReducer:Reducer<PostCardPopularState,PostCardPopularAction,PostCardPopularEnvironment> = {
-    state, action, env, _ ->
+val PostCardPopularReducer:Reducer<PostState,PostCardPopularAction,Unit> = {
+    state, action, _, _ ->
     when(action){
-        is PostCardPopularAction.NavigateToArticle -> state to env
-            .navigateToArticle(action.id)
-            .flowOn(Dispatchers.Main)
-            .map { PostCardPopularAction.None }
-
-        PostCardPopularAction.None -> state to emptyFlow()
+        is PostCardPopularAction.ExternalNavigateTo -> state to emptyFlow()
     }
 }
 
 @Composable
 fun PostCardPopular(
-    store: Store<PostCardPopularState, PostCardPopularAction>,
+    store: Store<PostState, PostCardPopularAction>,
     modifier: Modifier = Modifier
 ) {
 
     StoreView(store) { state ->
 
-        val navigateToArticle = sendToStore(PostCardPopularAction.NavigateToArticle(state.post.id))
+        val navigateToArticle = sendToStore(PostCardPopularAction.ExternalNavigateTo(state.post.id))
 
         Card(
             shape = MaterialTheme.shapes.medium,

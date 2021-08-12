@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import arrow.core.andThen
+import arrow.optics.optics
 import com.example.jetnews.R
 import com.example.jetnews.framework.Reducer
 import com.example.jetnews.framework.Store
@@ -88,17 +89,17 @@ fun PostTitle(post: Post) {
 
 @Composable
 fun PostCardSimple(
-    store:Store<PostCardSimpleState, PostCardSimpleAction>
+    store:Store<PostState, PostCardSimpleAction>
 ) {
     StoreView(store) { state ->
-        val bookmarkAction = stringResource(if (state.isFavorite) R.string.unbookmark else R.string.bookmark)
+        val bookmarkAction = stringResource(if (state.favorite) R.string.unbookmark else R.string.bookmark)
 
 
         val sendToggleMessage = sendToStore(PostCardSimpleAction.ToggleFavorite(state.post.id))
 
         Row(
             modifier = Modifier
-                .clickable(onClick = { state.post.id }.andThen(sendToStore(PostCardSimpleAction::Navigate)))
+                .clickable(onClick = { state.post.id }.andThen(sendToStore(PostCardSimpleAction::ExternalNavigateTo)))
                 .padding(16.dp)
                 .semantics {
                     // By defining a custom action, we tell accessibility services that this whole
@@ -118,7 +119,7 @@ fun PostCardSimple(
                 AuthorAndReadTime(state.post)
             }
             BookmarkButton(
-                isBookmarked = state.isFavorite,
+                isBookmarked = state.favorite,
                 onClick = sendToggleMessage,
                 // Remove button semantics so action can be handled at row level
                 modifier = Modifier.clearAndSetSemantics {}
@@ -127,60 +128,45 @@ fun PostCardSimple(
     }
 }
 
-data class PostCardSimpleState(
-    val post:Post,
-    val isFavorite: Boolean
-)
-
 sealed class PostCardSimpleAction{
     data class ToggleFavorite(val id:String):PostCardSimpleAction()
-    data class Navigate(val id:String):PostCardSimpleAction()
-    object None:PostCardSimpleAction()
+    data class UpdatedFavorites(val favorites:Set<String>):PostCardSimpleAction()
+    data class ExternalNavigateTo(val id:String):PostCardSimpleAction()
 }
 
 class PostCardSimpleEnvironment(
-    val navigateToArticle:(String) -> Flow<Unit>,
-    val onToggleFavorite:(String) -> Flow<Unit>
+    val onToggleFavorite:(String) -> Flow<Set<String>>
 )
 
-val PostCardSimpleReducer:Reducer<PostCardSimpleState, PostCardSimpleAction, PostCardSimpleEnvironment> = {
+val PostCardSimpleReducer:Reducer<PostState, PostCardSimpleAction, PostCardSimpleEnvironment> = {
     state, action, env, scope ->
     when(action){
         is PostCardSimpleAction.ToggleFavorite -> Pair(
             state,
             env
                 .onToggleFavorite(action.id)
-                .map { PostCardSimpleAction.None }
+                .map { PostCardSimpleAction.UpdatedFavorites(it) }
         )
-        is PostCardSimpleAction.Navigate -> state to env
-            .navigateToArticle(action.id)
-            .flowOn(Dispatchers.Main)
-            .map { PostCardSimpleAction.None }
-        PostCardSimpleAction.None -> state to emptyFlow()
+        is PostCardSimpleAction.ExternalNavigateTo -> state to emptyFlow()
+        is PostCardSimpleAction.UpdatedFavorites -> PostState.favorite.set(
+            source = state,
+            focus = action.favorites.contains(state.post.id)
+        ) to emptyFlow()
     }
 }
 
-data class PostCardHistoryState(val post:Post, val openDialog:Boolean)
+data class PostCardHistoryState(val post:PostState, val openDialog:Boolean)
 
 sealed class PostCardHistoryAction{
-    data class NavigateTo(val id:String):PostCardHistoryAction()
-    object None:PostCardHistoryAction()
+    data class ExternalNavigateTo(val id:String):PostCardHistoryAction()
     object OpenDialog:PostCardHistoryAction()
     object CloseDialog:PostCardHistoryAction()
 }
 
-class PostCardHistoryEnvironment(
-    val navigateToArticle:(String) -> Flow<Unit>
-)
-
-val PostCardHistoryReducer:Reducer<PostCardHistoryState, PostCardHistoryAction, PostCardHistoryEnvironment> = {
+val PostCardHistoryReducer:Reducer<PostCardHistoryState, PostCardHistoryAction, Unit> = {
     state, action, env, _ ->
     when(action){
-        is PostCardHistoryAction.NavigateTo -> state to env
-            .navigateToArticle(action.id)
-            .flowOn(Dispatchers.Main)
-            .map { PostCardHistoryAction.None }
-        PostCardHistoryAction.None -> state to emptyFlow()
+        is PostCardHistoryAction.ExternalNavigateTo -> state to emptyFlow()
         PostCardHistoryAction.OpenDialog -> state.copy(openDialog = true) to emptyFlow()
         PostCardHistoryAction.CloseDialog -> state.copy(openDialog = false) to emptyFlow()
     }
@@ -190,14 +176,14 @@ val PostCardHistoryReducer:Reducer<PostCardHistoryState, PostCardHistoryAction, 
 fun PostCardHistory(store:Store<PostCardHistoryState, PostCardHistoryAction>) {
     StoreView(store) { state ->
 
-        val navigateToArticle = sendToStore(PostCardHistoryAction.NavigateTo(state.post.id))
+        val navigateToArticle = sendToStore(PostCardHistoryAction.ExternalNavigateTo(state.post.post.id))
 
         Row(
             Modifier
                 .clickable(onClick = navigateToArticle)
         ) {
             PostImage(
-                post = state.post,
+                post = state.post.post,
                 modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp)
             )
             Column(
@@ -211,9 +197,9 @@ fun PostCardHistory(store:Store<PostCardHistoryState, PostCardHistoryAction>) {
                         style = MaterialTheme.typography.overline
                     )
                 }
-                PostTitle(post = state.post)
+                PostTitle(post = state.post.post)
                 AuthorAndReadTime(
-                    post = state.post,
+                    post = state.post.post,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
