@@ -310,8 +310,7 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
  */
 @Composable
 fun InterestsScreen(
-    interestsRepository: InterestsRepository,
-    openDrawer: () -> Unit,
+    store:Store<InterestsScreenState, InterestsScreenAction>,
     scaffoldState: ScaffoldState = rememberScaffoldState()
 ) {
     // Returns a [CoroutineScope] that is scoped to the lifecycle of [InterestsScreen]. When this
@@ -320,20 +319,6 @@ fun InterestsScreen(
 
     // Describe the screen sections here since each section needs 2 states and 1 event.
     // Pass them to the stateless InterestsScreen using a tabContent.
-
-    val store = Store.of(
-        state = InterestsScreenState(
-            topicListState = LoadedStatus.NotLoaded,
-            peopleListState = LoadedStatus.NotLoaded,
-            publicationListState = LoadedStatus.NotLoaded,
-            selectedTopics = emptySet(),
-            selectedPeople = emptySet(),
-            selectedPublications = emptySet(),
-            currentTab = Sections.Topics
-        ),
-        reducer = ComposedInterestScreenReducer,
-        environment = InterestScreenEnvironment(interestsRepository, { flowOf(Unit).map { openDrawer() }.map { Unit } })
-    )
 
     StoreView(store) { state ->
 
@@ -798,20 +783,20 @@ private fun TopicDivider() {
         color = MaterialTheme.colors.onSurface.copy(alpha = 0.1f)
     )
 }
-
-@Preview("Interests screen", "Interests")
-@Preview("Interests screen (dark)", "Interests", uiMode = UI_MODE_NIGHT_YES)
-@Preview("Interests screen (big font)", "Interests", fontScale = 1.5f)
-@Preview("Interests screen (large screen)", "Interests", device = Devices.PIXEL_C)
-@Composable
-fun PreviewInterestsScreen() {
-    JetnewsTheme {
-        InterestsScreen(
-            interestsRepository = FakeInterestsRepository(),
-            openDrawer = {}
-        )
-    }
-}
+//
+//@Preview("Interests screen", "Interests")
+//@Preview("Interests screen (dark)", "Interests", uiMode = UI_MODE_NIGHT_YES)
+//@Preview("Interests screen (big font)", "Interests", fontScale = 1.5f)
+//@Preview("Interests screen (large screen)", "Interests", device = Devices.PIXEL_C)
+//@Composable
+//fun PreviewInterestsScreen() {
+//    JetnewsTheme {
+//        InterestsScreen(
+//            interestsRepository = FakeInterestsRepository(),
+//            openDrawer = {}
+//        )
+//    }
+//}
 
 //@Preview("Interests screen topics tab", "Topics")
 //@Preview("Interests screen topics tab (dark)", "Topics", uiMode = UI_MODE_NIGHT_YES)

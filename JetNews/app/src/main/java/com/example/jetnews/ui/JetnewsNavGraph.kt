@@ -28,10 +28,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.jetnews.data.AppContainer
+import com.example.jetnews.data.Result
+import com.example.jetnews.data.succeeded
+import com.example.jetnews.framework.Store
 import com.example.jetnews.ui.MainDestinations.ARTICLE_ID_KEY
-import com.example.jetnews.ui.article.ArticleScreen
-import com.example.jetnews.ui.home.HomeScreen
-import com.example.jetnews.ui.interests.InterestsScreen
+import com.example.jetnews.ui.article.*
+import com.example.jetnews.ui.home.*
+import com.example.jetnews.ui.interests.*
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 /**
@@ -61,22 +65,76 @@ fun JetnewsNavGraph(
     ) {
         composable(MainDestinations.HOME_ROUTE) {
             HomeScreen(
-                postsRepository = appContainer.postsRepository,
-                navigateToArticle = actions.navigateToArticle,
-                openDrawer = openDrawer
+                Store.of(
+                    state = HomeScreenState(
+                        posts = PostStatus.NotLoaded,
+                        currentScreen = MainDestinations.HOME_ROUTE,
+                        historyDialogOpenStatus = HistoryPostDialogStatus.NotOpen
+                    ),
+                    reducer = ComposedHomeScreenReducer(),
+                    environment = HomeScreenEnvironment(openDrawer = {
+                        flow{
+                            openDrawer()
+                            emit(Unit)
+                        }
+                    },postsRepository = appContainer.postsRepository)
+                )
             )
         }
         composable(MainDestinations.INTERESTS_ROUTE) {
             InterestsScreen(
-                interestsRepository = appContainer.interestsRepository,
-                openDrawer = openDrawer
+                Store.of(
+                    state = InterestsScreenState(
+                        topicListState = LoadedStatus.NotLoaded,
+                        peopleListState = LoadedStatus.NotLoaded,
+                        publicationListState = LoadedStatus.NotLoaded,
+                        selectedTopics = emptySet(),
+                        selectedPeople = emptySet(),
+                        selectedPublications = emptySet(),
+                        currentTab = Sections.Topics
+                    ),
+                    reducer = ComposedInterestScreenReducer,
+                    environment = InterestScreenEnvironment(appContainer.interestsRepository, { flowOf(Unit).map { openDrawer() }.map { Unit } })
+                )
             )
         }
         composable("${MainDestinations.ARTICLE_ROUTE}/{$ARTICLE_ID_KEY}") { backStackEntry ->
             ArticleScreen(
-                postId = backStackEntry.arguments?.getString(ARTICLE_ID_KEY),
-                onBack = actions.upPress,
-                postsRepository = appContainer.postsRepository
+                Store.of(
+                    state = ArticleScreenState(
+                        article = ArticleStatus.NotLoadedFor(backStackEntry.arguments?.getString(ARTICLE_ID_KEY) ?: ""),
+                        dialogShown = false
+                    ),
+                    reducer = ComposedArticleScreenReducer(),
+                    environment = ArticleScreenEnvironment(
+                        getPost = { articleId ->
+                            flow {
+                                val post = appContainer.postsRepository.getPost(articleId)
+                                if (post is Result.Success){
+                                    emit(post.data)
+                                }
+                                if (post is Result.Error){
+                                    throw post.exception
+                                }
+                            }
+                        },
+
+                        favouritePosts = {
+                            flow {
+                                val favorites = appContainer.postsRepository.observeFavorites().take(1).first()
+                                emit(favorites)
+                            }
+                        },
+
+                        toggleFavorite = { articleId ->
+                            flow {
+                                appContainer.postsRepository.toggleFavorite(articleId)
+                                val favorites = appContainer.postsRepository.observeFavorites().take(1).first()
+                                emit(favorites)
+                            }
+                        }
+                    )
+                )
             )
         }
     }

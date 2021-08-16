@@ -19,6 +19,7 @@ package com.example.jetnews.ui.article
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration.UI_MODE_NIGHT_YES
+import android.provider.MediaStore
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -52,20 +53,151 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import arrow.core.Either
+import arrow.core.none
+import arrow.core.some
+import arrow.optics.Optional
+import arrow.optics.optics
 import com.example.jetnews.R
 import com.example.jetnews.data.Result
 import com.example.jetnews.data.posts.PostsRepository
 import com.example.jetnews.data.posts.impl.BlockingFakePostsRepository
 import com.example.jetnews.data.posts.impl.post3
+import com.example.jetnews.framework.*
 import com.example.jetnews.model.Post
 import com.example.jetnews.ui.components.InsetAwareTopAppBar
 import com.example.jetnews.ui.home.BookmarkButton
+import com.example.jetnews.ui.home.PostState
 import com.example.jetnews.ui.theme.JetnewsTheme
 import com.example.jetnews.utils.produceUiState
 import com.example.jetnews.utils.supportWideScreen
 import com.google.accompanist.insets.navigationBarsPadding
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+
+
+
+sealed class ArticleStatus{
+    data class NotLoadedFor(val id:String):ArticleStatus()
+    data class LoadingInProgressFor(val id:String):ArticleStatus()
+    data class ErrorFor(val id:String, val error:Throwable):ArticleStatus()
+    data class Loaded(val id:String, val post:PostState):ArticleStatus()
+}
+
+@optics
+data class ArticleScreenState(
+    val article:ArticleStatus,
+    val dialogShown: Boolean
+){
+    companion object{
+        val articleViewState:Optional<ArticleScreenState, ArticleViewState> = Optional(
+            getOption = {
+                if (it.article is ArticleStatus.Loaded)
+                    ArticleViewState(article = it.article.post, dialogShown = it.dialogShown).some()
+                else none()
+            },
+            set = { screenState, viewState ->
+                screenState.copy(
+                    article = ArticleStatus.Loaded(viewState.article.post.id, viewState.article),
+                    dialogShown = viewState.dialogShown
+                )
+            }
+        )
+    }
+}
+
+@optics
+sealed class ArticleScreenActions{
+    companion object{}
+
+    @optics data class LoadFor(val id:String):ArticleScreenActions(){
+        companion object
+    }
+    @optics data class Loaded(val post:PostState):ArticleScreenActions(){
+        companion object
+    }
+    @optics data class Error(val id:String, val error:Throwable):ArticleScreenActions(){
+        companion object
+    }
+    @optics data class ArticleViewActions(val action:ArticleViewAction):ArticleScreenActions(){
+        companion object
+    }
+
+    object ExternalNavigateBack:ArticleScreenActions()
+
+    @optics data class ExternalShare(val title:String, val url:String):ArticleScreenActions(){
+        companion object
+    }
+}
+
+class ArticleScreenEnvironment(
+    val getPost:(String) -> Flow<Post>,
+    val favouritePosts:() -> Flow<Set<String>>,
+    val toggleFavorite:(String) -> Flow<Set<String>>
+){
+
+}
+
+fun ComposedArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, ArticleScreenEnvironment> =
+    combine(
+        ArticleViewReducer().pullbackOptional(
+            stateMapper = ArticleScreenState.articleViewState,
+            actionMapper = ArticleScreenActions.articleViewActions.action,
+            environmentMapper = {
+                ArticleViewEnvironment(
+                    toggleFavorite = it.toggleFavorite
+                )
+            }
+        ),
+        ArticleScreenReducer(),
+        {
+            state, action, env, _ ->
+            when{
+                action is ArticleScreenActions.ArticleViewActions &&
+                        action.action is ArticleViewAction.ExternalSharePost ->
+                    state to flowOf(ArticleScreenActions.ExternalShare(action.action.title, action.action.url))
+
+                action is ArticleScreenActions.ArticleViewActions &&
+                        action.action is ArticleViewAction.ExternalNavigateBack ->
+                    state to flowOf(ArticleScreenActions.ExternalNavigateBack)
+
+                else -> state to emptyFlow()
+            }
+        }
+    )
+
+fun ArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, ArticleScreenEnvironment> = {
+    state, action, env, scope ->
+    when(action){
+        is ArticleScreenActions.LoadFor ->
+            env.getPost(action.id)
+                .combine(env.favouritePosts()){post, favorites -> PostState(
+                    favorite = favorites.contains(post.id),
+                    post = post
+                )}
+                .map { Either.Right(it) as Either<Throwable, PostState> }
+                .catch { emit(Either.Left(it)) as Either<Throwable, PostState> }
+                .map { it.fold(
+                    ifLeft = { ArticleScreenActions.Error(action.id, it) },
+                    ifRight = { ArticleScreenActions.Loaded(it) }
+                 )
+                }.let {
+                    state.copy(article = ArticleStatus.LoadingInProgressFor(action.id)) to it
+                }
+
+        is ArticleScreenActions.Error -> state.copy(article = ArticleStatus.ErrorFor(action.id, action.error)) to emptyFlow()
+
+        is ArticleScreenActions.Loaded -> state.copy(article = ArticleStatus.Loaded(action.post.post.id, action.post)) to emptyFlow()
+
+        is ArticleScreenActions.ArticleViewActions -> state to emptyFlow()
+
+        ArticleScreenActions.ExternalNavigateBack -> state to emptyFlow()
+
+        is ArticleScreenActions.ExternalShare -> state to emptyFlow()
+    }
+}
 
 /**
  * Stateful Article Screen that manages state using [produceUiState]
@@ -77,34 +209,82 @@ import kotlinx.coroutines.runBlocking
 @Suppress("DEPRECATION") // allow ViewModelLifecycleScope call
 @Composable
 fun ArticleScreen(
-    postId: String?,
-    postsRepository: PostsRepository,
-    onBack: () -> Unit
+    store: Store<ArticleScreenState, ArticleScreenActions>
 ) {
-    val (post) = produceUiState(postsRepository, postId) {
-        getPost(postId)
-    }
-    // TODO: handle errors when the repository is capable of creating them
-    val postData = post.value.data ?: return
 
-    // [collectAsState] will automatically collect a Flow<T> and return a State<T> object that
-    // updates whenever the Flow emits a value. Collection is cancelled when [collectAsState] is
-    // removed from the composition tree.
-    val favorites by postsRepository.observeFavorites().collectAsState(setOf())
-    val isFavorite = favorites.contains(postId)
+    StoreView(store) { state ->
 
-    // Returns a [CoroutineScope] that is scoped to the lifecycle of [ArticleScreen]. When this
-    // screen is removed from composition, the scope will be cancelled.
-    val coroutineScope = rememberCoroutineScope()
-
-    ArticleScreen(
-        post = postData,
-        onBack = onBack,
-        isFavorite = isFavorite,
-        onToggleFavorite = {
-            coroutineScope.launch { postId?.let { postsRepository.toggleFavorite(postId) } }
+        if (state.article is ArticleStatus.NotLoadedFor){
+            sendToStore(ArticleScreenActions.LoadFor(state.article.id))()
         }
-    )
+
+        if (state.article is ArticleStatus.ErrorFor){
+            sendToStore(ArticleScreenActions.LoadFor(state.article.id))()
+        }
+
+        val articleViewState = ArticleScreenState.articleViewState.getOrNull(state);
+
+        if (articleViewState == null) return@StoreView
+
+        val articleViewStore = store.forView<ArticleViewState, ArticleViewAction>(
+            appState = state,
+            stateBuilder = { articleViewState },
+            actionMapper = { ArticleScreenActions.ArticleViewActions(it) }
+        )
+
+        ArticleView(
+            articleViewStore
+        )
+    }
+}
+
+
+
+data class ArticleViewState(
+    val article:PostState,
+    val dialogShown:Boolean
+)
+
+sealed class ArticleViewAction {
+    data class ToggleFavorite(val id: String) : ArticleViewAction()
+    data class UpdatedFavorites(val favorites: Set<String>) : ArticleViewAction()
+    object ShowFunctionalityNotAvailableDialog : ArticleViewAction()
+    object HideFunctionalityNotAvailableDialog : ArticleViewAction()
+    object ExternalNavigateBack : ArticleViewAction()
+    class ExternalSharePost(val title:String, val url:String):ArticleViewAction()
+}
+
+class ArticleViewEnvironment(
+    val toggleFavorite:(String) -> Flow<Set<String>>
+)
+
+fun ArticleViewReducer():Reducer<ArticleViewState, ArticleViewAction, ArticleViewEnvironment> = {
+    state, action, env, _ ->
+    when(action){
+        ArticleViewAction.ShowFunctionalityNotAvailableDialog ->
+            state.copy(dialogShown = true) to emptyFlow()
+
+        ArticleViewAction.HideFunctionalityNotAvailableDialog ->
+            state.copy(dialogShown = false) to emptyFlow()
+
+        ArticleViewAction.ExternalNavigateBack -> state to emptyFlow()
+
+        is ArticleViewAction.ToggleFavorite ->
+            env.toggleFavorite(action.id)
+                .map { ArticleViewAction.UpdatedFavorites(it) }
+                .let {
+                    state to it
+                }
+
+        is ArticleViewAction.UpdatedFavorites ->
+            state.copy(
+                article = state.article.copy(
+                    favorite = action.favorites.contains(state.article.post.id)
+                )
+            ) to emptyFlow()
+
+        is ArticleViewAction.ExternalSharePost -> state to emptyFlow()
+    }
 }
 
 /**
@@ -116,57 +296,61 @@ fun ArticleScreen(
  * @param onToggleFavorite (event) request that this post toggle it's favorite state
  */
 @Composable
-fun ArticleScreen(
-    post: Post,
-    onBack: () -> Unit,
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit
+fun ArticleView(
+    store:Store<ArticleViewState, ArticleViewAction>
 ) {
 
-    var showDialog by rememberSaveable { mutableStateOf(false) }
-    if (showDialog) {
-        FunctionalityNotAvailablePopup { showDialog = false }
-    }
 
-    Scaffold(
-        topBar = {
-            InsetAwareTopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(id = R.string.article_published_in, formatArgs = arrayOf(post.publication?.name.orEmpty())),
-                        style = MaterialTheme.typography.subtitle2,
-                        color = LocalContentColor.current
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_navigate_up)
+    StoreView(store) { state ->
+        if (state.dialogShown) {
+            FunctionalityNotAvailablePopup(sendToStore(ArticleViewAction.HideFunctionalityNotAvailableDialog))
+        }
+
+
+
+        Scaffold(
+            topBar = {
+                InsetAwareTopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(
+                                id = R.string.article_published_in,
+                                formatArgs = arrayOf(state.article.post.publication?.name.orEmpty())
+                            ),
+                            style = MaterialTheme.typography.subtitle2,
+                            color = LocalContentColor.current
                         )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = sendToStore(ArticleViewAction.ExternalNavigateBack)) {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.cd_navigate_up)
+                            )
+                        }
                     }
-                }
-            )
-        },
-        bottomBar = {
-            BottomBar(
-                post = post,
-                onUnimplementedAction = { showDialog = true },
-                isFavorite = isFavorite,
-                onToggleFavorite = onToggleFavorite
+                )
+            },
+            bottomBar = {
+                BottomBar(
+                    onUnimplementedAction = sendToStore(ArticleViewAction.ShowFunctionalityNotAvailableDialog),
+                    isFavorite = state.article.favorite,
+                    onToggleFavorite = sendToStore(ArticleViewAction.ToggleFavorite(state.article.post.id)),
+                    onSharePost = sendToStore(ArticleViewAction.ExternalSharePost(state.article.post.title, state.article.post.url))
+                )
+            }
+        ) { innerPadding ->
+            PostContent(
+                post = state.article.post,
+                modifier = Modifier
+                    // innerPadding takes into account the top and bottom bar
+                    .padding(innerPadding)
+                    // offset content in landscape mode to account for the navigation bar
+                    .navigationBarsPadding(bottom = false)
+                    // center content in landscape mode
+                    .supportWideScreen()
             )
         }
-    ) { innerPadding ->
-        PostContent(
-            post = post,
-            modifier = Modifier
-                // innerPadding takes into account the top and bottom bar
-                .padding(innerPadding)
-                // offset content in landscape mode to account for the navigation bar
-                .navigationBarsPadding(bottom = false)
-                // center content in landscape mode
-                .supportWideScreen()
-        )
     }
 }
 
@@ -180,10 +364,10 @@ fun ArticleScreen(
  */
 @Composable
 private fun BottomBar(
-    post: Post,
     onUnimplementedAction: () -> Unit,
     isFavorite: Boolean,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onSharePost:() -> Unit
 ) {
     Surface(elevation = 8.dp) {
         Row(
@@ -203,8 +387,7 @@ private fun BottomBar(
                 isBookmarked = isFavorite,
                 onClick = onToggleFavorite
             )
-            val context = LocalContext.current
-            IconButton(onClick = { sharePost(post, context) }) {
+            IconButton(onClick = onSharePost) {
                 Icon(
                     imageVector = Icons.Filled.Share,
                     contentDescription = stringResource(R.string.cd_share)
@@ -259,16 +442,16 @@ private fun sharePost(post: Post, context: Context) {
     context.startActivity(Intent.createChooser(intent, context.getString(R.string.article_share_post)))
 }
 
-@Preview("Article screen")
-@Preview("Article screen (dark)", uiMode = UI_MODE_NIGHT_YES)
-@Preview("Article screen (big font)", fontScale = 1.5f)
-@Preview("Article screen (large screen)", device = Devices.PIXEL_C)
-@Composable
-fun PreviewArticle() {
-    JetnewsTheme {
-        val post = runBlocking {
-            (BlockingFakePostsRepository().getPost(post3.id) as Result.Success).data
-        }
-        ArticleScreen(post, {}, false, {})
-    }
-}
+//@Preview("Article screen")
+//@Preview("Article screen (dark)", uiMode = UI_MODE_NIGHT_YES)
+//@Preview("Article screen (big font)", fontScale = 1.5f)
+//@Preview("Article screen (large screen)", device = Devices.PIXEL_C)
+//@Composable
+//fun PreviewArticle() {
+//    JetnewsTheme {
+//        val post = runBlocking {
+//            (BlockingFakePostsRepository().getPost(post3.id) as Result.Success).data
+//        }
+//        ArticleScreen(post, {}, false, {})
+//    }
+//}

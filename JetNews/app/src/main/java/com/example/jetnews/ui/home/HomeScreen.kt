@@ -101,33 +101,11 @@ data class Person(
 
 @Composable
 fun HomeScreen(
-    postsRepository: PostsRepository,
-    navigateToArticle: (String) -> Unit,
-    openDrawer: () -> Unit,
+    store:Store<HomeScreenState, HomeScreenAction>,
     scaffoldState: ScaffoldState = rememberScaffoldState()
 ) {
 
-    val store = Store.of(
-        state = HomeScreenState(
-            posts = PostStatus.NotLoaded,
-            currentScreen = MainDestinations.HOME_ROUTE,
-            historyDialogOpenStatus = HistoryPostDialogStatus.NotOpen
-        ),
-        reducer = ComposedHomeScreenReducer(),
-        environment = HomeScreenEnvironment(openDrawer = {
-            flow{
-                openDrawer()
-                emit(Unit)
-            }
-        },postsRepository = postsRepository)
-    )
-
     StoreView(store) { state ->
-
-        if (state.currentScreen != MainDestinations.HOME_ROUTE){
-            navigateToArticle(state.currentScreen)
-            sendToStore(HomeScreenAction.StayOnHomeTemp)()
-        }
 
         if (state.posts is PostStatus.NotLoaded){
             sendToStore(HomeScreenAction.LoadPost)()
