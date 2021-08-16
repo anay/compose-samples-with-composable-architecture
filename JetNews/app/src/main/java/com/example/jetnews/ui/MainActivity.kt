@@ -28,9 +28,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val appContainer = (application as JetnewsApplication).container
+        val store = (application as JetnewsApplication).store
         setContent {
-            JetnewsApp(appContainer)
+            JetnewsApp(store)
         }
     }
 }

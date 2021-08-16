@@ -16,65 +16,36 @@
 
 package com.example.jetnews.ui.home
 
-import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.Icon
-import androidx.compose.material.IconButton
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.ScaffoldState
-import androidx.compose.material.SnackbarResult
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
-import androidx.compose.material.rememberScaffoldState
+import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Devices
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import arrow.core.*
 import arrow.optics.Lens
 import arrow.optics.Optional
-import arrow.optics.dsl.at
 import arrow.optics.optics
-import arrow.optics.typeclasses.At
 import arrow.optics.typeclasses.Index
 import com.example.jetnews.R
-import com.example.jetnews.data.Result
-import com.example.jetnews.data.posts.PostsRepository
-import com.example.jetnews.data.posts.impl.BlockingFakePostsRepository
 import com.example.jetnews.framework.*
 import com.example.jetnews.model.Post
 import com.example.jetnews.ui.MainDestinations
 import com.example.jetnews.ui.components.InsetAwareTopAppBar
-import com.example.jetnews.ui.state.UiState
-import com.example.jetnews.ui.theme.JetnewsTheme
 import com.example.jetnews.utils.produceUiState
-import com.example.jetnews.utils.supportWideScreen
 import com.google.accompanist.insets.LocalWindowInsets
 import com.google.accompanist.insets.rememberInsetsPaddingValues
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * Stateful HomeScreen which manages state using [produceUiState]
@@ -288,7 +259,7 @@ fun PostListReducer():Reducer<PostListState, PostListAction, HomeScreenEnvironme
             states = PostListState.postListSimpleItems,
             environmentMapper = { env ->
                 PostCardSimpleEnvironment(
-                    onToggleFavorite = env::toggleFavorite
+                    onToggleFavorite = env.toggleFavorite
                 )
             },
             actionMapper = PostListAction.postListSimpleSectionActions.action
@@ -635,7 +606,7 @@ fun ComposedHomeScreenReducer():Reducer<HomeScreenState, HomeScreenAction, HomeS
             state, action, _, _ ->
             when{
                 action is HomeScreenAction.PostListActions && action.action is PostListAction.ExternalNavigateTo ->
-                    state to flowOf(HomeScreenAction.ExternalNavigateTo(action.action.path))
+                    state to flowOf(HomeScreenAction.ExternalNavigateTo("${MainDestinations.ARTICLE_ROUTE}/${action.action.path}"))
                 else -> state to emptyFlow()
             }
         },
@@ -679,7 +650,7 @@ fun HomeScreenReducer():Reducer<HomeScreenState, HomeScreenAction, HomeScreenEnv
             state to flowOf(HomeScreenAction.ExternalNavigateTo(action.path))
 
         is HomeScreenAction.ExternalNavigateTo ->
-            state.copy(currentScreen = "${MainDestinations.ARTICLE_ROUTE}/${action.path}") to emptyFlow()
+            state to emptyFlow()
 
         HomeScreenAction.StayOnHomeTemp ->
             state.copy(currentScreen = "home") to emptyFlow()
@@ -689,31 +660,9 @@ fun HomeScreenReducer():Reducer<HomeScreenState, HomeScreenAction, HomeScreenEnv
 }
 
 class HomeScreenEnvironment(
-    val openDrawer:() -> Flow<Unit>,
-    private val postsRepository: PostsRepository
+    val getPost:(String) -> Flow<Post>,
+    val getPosts:() -> Flow<List<Post>>,
+    val favouritePosts:() -> Flow<Set<String>>,
+    val toggleFavorite:(String) -> Flow<Set<String>>
 ){
-    fun getPost(postId:String) = flow{
-        val post = postsRepository.getPost(postId)
-        when(post){
-            is Result.Success -> emit(post.data)
-            is Result.Error -> throw post.exception
-        }
-    }
-
-    fun getPosts() = flow{
-        val posts = postsRepository.getPosts()
-        when(posts){
-            is Result.Success -> emit(posts.data)
-            is Result.Error -> throw posts.exception
-        }
-    }
-
-    fun favouritePosts() = postsRepository.observeFavorites()
-        .take(1)
-
-    fun toggleFavorite(postId: String) = flow {
-        postsRepository.toggleFavorite(postId)
-        val favorites = favouritePosts().first()
-        emit(favorites)
-    }
 }

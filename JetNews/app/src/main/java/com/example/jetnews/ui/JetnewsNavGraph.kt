@@ -27,10 +27,18 @@ import androidx.navigation.NavOptions
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import arrow.optics.Lens
+import arrow.optics.optics
 import com.example.jetnews.data.AppContainer
 import com.example.jetnews.data.Result
+import com.example.jetnews.data.interests.TopicSelection
+import com.example.jetnews.data.interests.TopicsMap
 import com.example.jetnews.data.succeeded
+import com.example.jetnews.framework.Reducer
 import com.example.jetnews.framework.Store
+import com.example.jetnews.framework.StoreView
+import com.example.jetnews.framework.pullback
+import com.example.jetnews.model.Post
 import com.example.jetnews.ui.MainDestinations.ARTICLE_ID_KEY
 import com.example.jetnews.ui.article.*
 import com.example.jetnews.ui.home.*
@@ -48,106 +56,209 @@ object MainDestinations {
     const val ARTICLE_ID_KEY = "postId"
 }
 
+data class JetNewsState(
+    val currentScreen:String,
+    val posts:PostStatus,
+    val historyDialogOpenStatus:HistoryPostDialogStatus,
+    val interestsScreenState: InterestsScreenState,
+    val articleScreenState: ArticleScreenState
+){
+    companion object{
+
+        val interestsScreenState:Lens<JetNewsState, InterestsScreenState> = Lens(
+            get = {it.interestsScreenState},
+            set = { state, childState -> state.copy(interestsScreenState = childState) }
+        )
+
+        val articleScreenState:Lens<JetNewsState, ArticleScreenState> = Lens(
+            get = {it.articleScreenState},
+            set = { state, childState -> state.copy(articleScreenState = childState) }
+        )
+
+        val homeScreenState:Lens<JetNewsState, HomeScreenState> = Lens(
+            get = {
+                HomeScreenState(
+                    posts = it.posts,
+                    historyDialogOpenStatus = it.historyDialogOpenStatus,
+                    currentScreen = it.currentScreen
+                )
+            },
+            set = { newsState, homeScreenState ->
+                newsState.copy(
+                    currentScreen = homeScreenState.currentScreen,
+                    posts = homeScreenState.posts,
+                    historyDialogOpenStatus = homeScreenState.historyDialogOpenStatus
+                )
+            }
+        )
+    }
+}
+
+@optics
+sealed class JetNewsAction{
+    companion object
+
+    @optics
+    data class HomeScreenActions(val action:HomeScreenAction):JetNewsAction(){
+        companion object
+    }
+
+    @optics
+    data class InterestScreenActions(val action:InterestsScreenAction):JetNewsAction(){
+        companion object
+    }
+
+    @optics
+    data class ArticleScreenActions(val action:ArticleScreenAction):JetNewsAction(){
+        companion object
+    }
+
+    @optics
+    data class ExternalNavigateTo(val path:String):JetNewsAction(){
+        companion object
+    }
+
+    object ExternalOpenDrawer:JetNewsAction()
+
+    object ExternalNavigateBack:JetNewsAction()
+
+    @optics
+    data class ExternalSharePost(val title:String, val url:String):JetNewsAction(){
+        companion object
+    }
+
+}
+
+class JetNewsEnvironment(
+    val getPost:(String) -> Flow<Post>,
+    val getPosts:() -> Flow<List<Post>>,
+    val favouritePosts:() -> Flow<Set<String>>,
+    val toggleFavorite:(String) -> Flow<Set<String>>,
+    val getPeople:() -> Flow<List<String>>,
+    val getPublication:() -> Flow<List<String>>,
+    val getTopics: () -> Flow<TopicsMap>,
+    val getSelectedTopics:() -> Flow<Set<TopicSelection>>,
+    val toggleTopic:(TopicSelection) -> Flow<Set<TopicSelection>>,
+    val getSelectedPeople:() -> Flow<Set<String>>,
+    val togglePerson:(String) -> Flow<Set<String>>,
+    val getSelectedPublications:() -> Flow<Set<String>>,
+    val togglePublications:(String) -> Flow<Set<String>>
+)
+
+
+fun ComposedJetNewsReducer():Reducer<JetNewsState, JetNewsAction, JetNewsEnvironment> =
+    com.example.jetnews.framework.combine(
+        ComposedHomeScreenReducer().pullback(
+            stateMapper = JetNewsState.homeScreenState,
+            actionMapper = JetNewsAction.homeScreenActions.action,
+            environmentMapper = {
+                HomeScreenEnvironment(
+                    getPost = it.getPost,
+                    getPosts = it.getPosts,
+                    favouritePosts = it.favouritePosts,
+                    toggleFavorite = it.toggleFavorite
+                )
+            }
+        ),
+
+        InterestScreenReducer.pullback(
+            stateMapper = JetNewsState.interestsScreenState,
+            actionMapper = JetNewsAction.interestScreenActions.action,
+            environmentMapper = {
+                InterestScreenEnvironment(
+                    getPeople = it.getPeople,
+                    getPublication = it.getPublication,
+                    getTopics = it.getTopics,
+                    getSelectedTopics = it.getSelectedTopics,
+                    toggleTopic = it.toggleTopic,
+                    getSelectedPeople = it.getSelectedPeople,
+                    togglePerson = it.togglePerson,
+                    getSelectedPublications = it.getSelectedPublications,
+                    togglePublications = it.togglePublications
+                )
+            }
+        ),
+
+        ComposedArticleScreenReducer().pullback(
+            stateMapper = JetNewsState.articleScreenState,
+            actionMapper = JetNewsAction.articleScreenActions.action,
+            environmentMapper = {
+                ArticleScreenEnvironment(
+                    getPost = it.getPost,
+                    favouritePosts = it.favouritePosts,
+                    toggleFavorite = it.toggleFavorite
+                )
+            }
+        ),
+
+        JetNewsReducer()
+    )
+
+fun JetNewsReducer():Reducer<JetNewsState, JetNewsAction, JetNewsEnvironment> = {
+    state, action, env, _ ->
+    when{
+
+        action is JetNewsAction.HomeScreenActions &&
+                action.action is HomeScreenAction.ExternalNavigateTo ->
+            state to flowOf(JetNewsAction.ExternalNavigateTo(action.action.path))
+
+        action is JetNewsAction.HomeScreenActions &&
+                action.action is HomeScreenAction.ExternalOpenDrawer ->
+            state to flowOf(JetNewsAction.ExternalOpenDrawer)
+
+        action is JetNewsAction.ArticleScreenActions &&
+                action.action is ArticleScreenAction.ExternalNavigateBack ->
+            state to flowOf(JetNewsAction.ExternalNavigateBack)
+
+        action is JetNewsAction.ArticleScreenActions &&
+                action.action is ArticleScreenAction.ExternalShare ->
+            state to flowOf(JetNewsAction.ExternalSharePost(action.action.title, action.action.url))
+
+        else -> state to emptyFlow()
+    }
+}
+
+
 @Composable
 fun JetnewsNavGraph(
-    appContainer: AppContainer,
+    store:Store<JetNewsState, JetNewsAction>,
     navController: NavHostController = rememberNavController(),
     scaffoldState: ScaffoldState = rememberScaffoldState(),
     startDestination: String = MainDestinations.HOME_ROUTE
 ) {
-    val actions = remember(navController) { MainActions(navController) }
-    val coroutineScope = rememberCoroutineScope()
-    val openDrawer: () -> Unit = { coroutineScope.launch { scaffoldState.drawerState.open() } }
 
-    NavHost(
-        navController = navController,
-        startDestination = startDestination
-    ) {
-        composable(MainDestinations.HOME_ROUTE) {
-            HomeScreen(
-                Store.of(
-                    state = HomeScreenState(
-                        posts = PostStatus.NotLoaded,
-                        currentScreen = MainDestinations.HOME_ROUTE,
-                        historyDialogOpenStatus = HistoryPostDialogStatus.NotOpen
-                    ),
-                    reducer = ComposedHomeScreenReducer(),
-                    environment = HomeScreenEnvironment(openDrawer = {
-                        flow{
-                            openDrawer()
-                            emit(Unit)
-                        }
-                    },postsRepository = appContainer.postsRepository)
-                )
-            )
-        }
-        composable(MainDestinations.INTERESTS_ROUTE) {
-            InterestsScreen(
-                Store.of(
-                    state = InterestsScreenState(
-                        topicListState = LoadedStatus.NotLoaded,
-                        peopleListState = LoadedStatus.NotLoaded,
-                        publicationListState = LoadedStatus.NotLoaded,
-                        selectedTopics = emptySet(),
-                        selectedPeople = emptySet(),
-                        selectedPublications = emptySet(),
-                        currentTab = Sections.Topics
-                    ),
-                    reducer = ComposedInterestScreenReducer,
-                    environment = InterestScreenEnvironment(appContainer.interestsRepository, { flowOf(Unit).map { openDrawer() }.map { Unit } })
-                )
-            )
-        }
-        composable("${MainDestinations.ARTICLE_ROUTE}/{$ARTICLE_ID_KEY}") { backStackEntry ->
-            ArticleScreen(
-                Store.of(
-                    state = ArticleScreenState(
-                        article = ArticleStatus.NotLoadedFor(backStackEntry.arguments?.getString(ARTICLE_ID_KEY) ?: ""),
-                        dialogShown = false
-                    ),
-                    reducer = ComposedArticleScreenReducer(),
-                    environment = ArticleScreenEnvironment(
-                        getPost = { articleId ->
-                            flow {
-                                val post = appContainer.postsRepository.getPost(articleId)
-                                if (post is Result.Success){
-                                    emit(post.data)
-                                }
-                                if (post is Result.Error){
-                                    throw post.exception
-                                }
-                            }
-                        },
-
-                        favouritePosts = {
-                            flow {
-                                val favorites = appContainer.postsRepository.observeFavorites().take(1).first()
-                                emit(favorites)
-                            }
-                        },
-
-                        toggleFavorite = { articleId ->
-                            flow {
-                                appContainer.postsRepository.toggleFavorite(articleId)
-                                val favorites = appContainer.postsRepository.observeFavorites().take(1).first()
-                                emit(favorites)
-                            }
-                        }
+    StoreView(store) { state ->
+        NavHost(
+            navController = navController,
+            startDestination = startDestination
+        ) {
+            composable(MainDestinations.HOME_ROUTE) {
+                HomeScreen(
+                    store.forView(
+                        appState = state,
+                        stateBuilder = { JetNewsState.homeScreenState.get(it) },
+                        actionMapper = { JetNewsAction.HomeScreenActions(it) }
                     )
                 )
-            )
+            }
+            composable(MainDestinations.INTERESTS_ROUTE) {
+                InterestsScreen(
+                    store.forView(
+                        appState = state,
+                        stateBuilder = { it.interestsScreenState },
+                        actionMapper = { JetNewsAction.InterestScreenActions(it) }
+                    )
+                )
+            }
+            composable("${MainDestinations.ARTICLE_ROUTE}/{$ARTICLE_ID_KEY}") { backStackEntry ->
+                ArticleScreen(
+                    store.forView(
+                        appState = state,
+                        stateBuilder = { it.articleScreenState },
+                        actionMapper = { JetNewsAction.ArticleScreenActions(it) }
+                    )
+                )
+            }
         }
-    }
-}
-
-/**
- * Models the navigation actions in the app.
- */
-class MainActions(navController: NavHostController) {
-    val navigateToArticle: (String) -> Unit = { postId: String ->
-        navController.navigate(postId)
-    }
-    val upPress: () -> Unit = {
-        navController.navigateUp()
     }
 }

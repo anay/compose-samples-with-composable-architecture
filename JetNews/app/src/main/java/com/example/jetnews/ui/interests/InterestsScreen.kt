@@ -66,6 +66,7 @@ import com.example.jetnews.R
 import com.example.jetnews.data.Result
 import com.example.jetnews.data.interests.InterestsRepository
 import com.example.jetnews.data.interests.TopicSelection
+import com.example.jetnews.data.interests.TopicsMap
 import com.example.jetnews.data.interests.impl.FakeInterestsRepository
 import com.example.jetnews.framework.*
 import com.example.jetnews.ui.components.InsetAwareTopAppBar
@@ -107,9 +108,6 @@ data class InterestsScreenState(
     val topicListState:LoadedStatus<TopicListState>,
     val peopleListState: LoadedStatus<TabWithTopicsState>,
     val publicationListState: LoadedStatus<TabWithTopicsState>,
-    val selectedTopics: Set<TopicSelection>,
-    val selectedPeople: Set<String>,
-    val selectedPublications:Set<String>,
     val currentTab: Sections
 ){
     companion object{
@@ -161,63 +159,17 @@ sealed class InterestsScreenAction{
 }
 
 class InterestScreenEnvironment(
-    val interestsRepository: InterestsRepository,
-    val openDrawer: () -> Flow<Unit>
+    val getPeople:() -> Flow<List<String>>,
+    val getPublication:() -> Flow<List<String>>,
+    val getTopics: () -> Flow<TopicsMap>,
+    val getSelectedTopics:() -> Flow<Set<TopicSelection>>,
+    val toggleTopic:(TopicSelection) -> Flow<Set<TopicSelection>>,
+    val getSelectedPeople:() -> Flow<Set<String>>,
+    val togglePerson:(String) -> Flow<Set<String>>,
+    val getSelectedPublications:() -> Flow<Set<String>>,
+    val togglePublications:(String) -> Flow<Set<String>>
 )
 {
-    fun getPeople() = flow{
-        val people = interestsRepository.getPeople()
-        when(people){
-            is Result.Success -> emit(people.data)
-            is Result.Error -> throw people.exception
-        }
-    }
-
-    fun getPublication() = flow{
-        val publication = interestsRepository.getPublications()
-        when(publication){
-            is Result.Success -> emit(publication.data)
-            is Result.Error -> throw publication.exception
-        }
-    }
-
-    fun getTopics() = flow{
-        val topics = interestsRepository.getTopics()
-        when(topics){
-            is Result.Success -> emit(topics.data)
-            is Result.Error -> throw topics.exception
-        }
-    }
-
-    fun selectedTopics() = interestsRepository.observeTopicsSelected().take(1)
-
-    fun toggleTopic(data:TopicSelection) =
-        flow<Unit> {
-            interestsRepository.toggleTopicSelection(data)
-            emit(Unit)
-        }.flatMapConcat {
-            interestsRepository.observeTopicsSelected().take(1)
-        }
-
-    fun selectedPeople() = interestsRepository.observePeopleSelected().take(1)
-
-    fun togglePerson(data:String) =
-        flow<Unit> {
-            interestsRepository.togglePersonSelected(data)
-            emit(Unit)
-        }.flatMapConcat {
-            interestsRepository.observePeopleSelected().take(1)
-        }
-
-    fun selectedPublications() = interestsRepository.observePublicationSelected().take(1)
-
-    fun togglePublication(data:String) =
-        flow<Unit> {
-            interestsRepository.togglePublicationSelected(data)
-            emit(Unit)
-        }.flatMapConcat {
-            interestsRepository.observePublicationSelected().take(1)
-        }
 }
 
 val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, InterestScreenEnvironment> =
@@ -226,7 +178,7 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
         when(action){
             InterestsScreenAction.LoadPeopleList -> state to env
                 .getPeople()
-                .combine(env.selectedPeople()){
+                .combine(env.getSelectedPeople()){
                     peopleList, selectedPeople -> Pair(peopleList, selectedPeople)
                 }
                 .flowOn(Dispatchers.IO)
@@ -234,7 +186,7 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
 
             InterestsScreenAction.LoadTopics -> state to env
                 .getTopics()
-                .combine(env.selectedTopics()){
+                .combine(env.getSelectedTopics()){
                     topicList, selectedTopics -> Pair(topicList, selectedTopics)
                 }
                 .flowOn(Dispatchers.IO)
@@ -242,7 +194,7 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
 
             InterestsScreenAction.LoadPublicationList -> state to env
                 .getPublication()
-                .combine(env.selectedPublications()){
+                .combine(env.getSelectedPublications()){
                     publicationList, selectedPublications -> Pair(publicationList, selectedPublications)
                 }
                 .flowOn(Dispatchers.IO)
@@ -287,11 +239,7 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
             is InterestsScreenAction.NavigateTo ->
                 state.copy(currentTab = action.tab) to emptyFlow()
 
-            InterestsScreenAction.OpenDrawer -> state to
-                env
-                    .openDrawer()
-                    .flowOn(Dispatchers.Main)
-                    .map { InterestsScreenAction.None }
+            InterestsScreenAction.OpenDrawer -> state to emptyFlow()
 
             InterestsScreenAction.None -> state to emptyFlow()
 
@@ -857,7 +805,7 @@ val ComposedInterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenA
             actionMapper = InterestsScreenAction.peopleListActions.action,
             environmentMapper = { env ->
                 TabWithTopicsEnvironment<String>(
-                    onTopicSelect = env::togglePerson
+                    onTopicSelect = env.togglePerson
                 )
             }
         ),
@@ -867,7 +815,7 @@ val ComposedInterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenA
             actionMapper = InterestsScreenAction.publicationListActions.action,
             environmentMapper = { env ->
                 TabWithTopicsEnvironment<String>(
-                    onTopicSelect = env::togglePublication
+                    onTopicSelect = env.togglePublications
                 )
             }
         ),

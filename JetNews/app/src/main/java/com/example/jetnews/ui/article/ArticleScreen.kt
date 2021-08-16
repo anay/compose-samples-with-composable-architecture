@@ -80,6 +80,7 @@ import kotlinx.coroutines.runBlocking
 
 
 sealed class ArticleStatus{
+    object NotRequested:ArticleStatus()
     data class NotLoadedFor(val id:String):ArticleStatus()
     data class LoadingInProgressFor(val id:String):ArticleStatus()
     data class ErrorFor(val id:String, val error:Throwable):ArticleStatus()
@@ -109,25 +110,25 @@ data class ArticleScreenState(
 }
 
 @optics
-sealed class ArticleScreenActions{
+sealed class ArticleScreenAction{
     companion object{}
 
-    @optics data class LoadFor(val id:String):ArticleScreenActions(){
+    @optics data class LoadFor(val id:String):ArticleScreenAction(){
         companion object
     }
-    @optics data class Loaded(val post:PostState):ArticleScreenActions(){
+    @optics data class Loaded(val post:PostState):ArticleScreenAction(){
         companion object
     }
-    @optics data class Error(val id:String, val error:Throwable):ArticleScreenActions(){
+    @optics data class Error(val id:String, val error:Throwable):ArticleScreenAction(){
         companion object
     }
-    @optics data class ArticleViewActions(val action:ArticleViewAction):ArticleScreenActions(){
+    @optics data class ArticleViewActions(val action:ArticleViewAction):ArticleScreenAction(){
         companion object
     }
 
-    object ExternalNavigateBack:ArticleScreenActions()
+    object ExternalNavigateBack:ArticleScreenAction()
 
-    @optics data class ExternalShare(val title:String, val url:String):ArticleScreenActions(){
+    @optics data class ExternalShare(val title:String, val url:String):ArticleScreenAction(){
         companion object
     }
 }
@@ -140,11 +141,11 @@ class ArticleScreenEnvironment(
 
 }
 
-fun ComposedArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, ArticleScreenEnvironment> =
+fun ComposedArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenAction, ArticleScreenEnvironment> =
     combine(
         ArticleViewReducer().pullbackOptional(
             stateMapper = ArticleScreenState.articleViewState,
-            actionMapper = ArticleScreenActions.articleViewActions.action,
+            actionMapper = ArticleScreenAction.articleViewActions.action,
             environmentMapper = {
                 ArticleViewEnvironment(
                     toggleFavorite = it.toggleFavorite
@@ -155,23 +156,23 @@ fun ComposedArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActi
         {
             state, action, env, _ ->
             when{
-                action is ArticleScreenActions.ArticleViewActions &&
+                action is ArticleScreenAction.ArticleViewActions &&
                         action.action is ArticleViewAction.ExternalSharePost ->
-                    state to flowOf(ArticleScreenActions.ExternalShare(action.action.title, action.action.url))
+                    state to flowOf(ArticleScreenAction.ExternalShare(action.action.title, action.action.url))
 
-                action is ArticleScreenActions.ArticleViewActions &&
+                action is ArticleScreenAction.ArticleViewActions &&
                         action.action is ArticleViewAction.ExternalNavigateBack ->
-                    state to flowOf(ArticleScreenActions.ExternalNavigateBack)
+                    state to flowOf(ArticleScreenAction.ExternalNavigateBack)
 
                 else -> state to emptyFlow()
             }
         }
     )
 
-fun ArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, ArticleScreenEnvironment> = {
+fun ArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenAction, ArticleScreenEnvironment> = {
     state, action, env, scope ->
     when(action){
-        is ArticleScreenActions.LoadFor ->
+        is ArticleScreenAction.LoadFor ->
             env.getPost(action.id)
                 .combine(env.favouritePosts()){post, favorites -> PostState(
                     favorite = favorites.contains(post.id),
@@ -180,22 +181,22 @@ fun ArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, Art
                 .map { Either.Right(it) as Either<Throwable, PostState> }
                 .catch { emit(Either.Left(it)) as Either<Throwable, PostState> }
                 .map { it.fold(
-                    ifLeft = { ArticleScreenActions.Error(action.id, it) },
-                    ifRight = { ArticleScreenActions.Loaded(it) }
+                    ifLeft = { ArticleScreenAction.Error(action.id, it) },
+                    ifRight = { ArticleScreenAction.Loaded(it) }
                  )
                 }.let {
                     state.copy(article = ArticleStatus.LoadingInProgressFor(action.id)) to it
                 }
 
-        is ArticleScreenActions.Error -> state.copy(article = ArticleStatus.ErrorFor(action.id, action.error)) to emptyFlow()
+        is ArticleScreenAction.Error -> state.copy(article = ArticleStatus.ErrorFor(action.id, action.error)) to emptyFlow()
 
-        is ArticleScreenActions.Loaded -> state.copy(article = ArticleStatus.Loaded(action.post.post.id, action.post)) to emptyFlow()
+        is ArticleScreenAction.Loaded -> state.copy(article = ArticleStatus.Loaded(action.post.post.id, action.post)) to emptyFlow()
 
-        is ArticleScreenActions.ArticleViewActions -> state to emptyFlow()
+        is ArticleScreenAction.ArticleViewActions -> state to emptyFlow()
 
-        ArticleScreenActions.ExternalNavigateBack -> state to emptyFlow()
+        ArticleScreenAction.ExternalNavigateBack -> state to emptyFlow()
 
-        is ArticleScreenActions.ExternalShare -> state to emptyFlow()
+        is ArticleScreenAction.ExternalShare -> state to emptyFlow()
     }
 }
 
@@ -209,17 +210,17 @@ fun ArticleScreenReducer():Reducer<ArticleScreenState, ArticleScreenActions, Art
 @Suppress("DEPRECATION") // allow ViewModelLifecycleScope call
 @Composable
 fun ArticleScreen(
-    store: Store<ArticleScreenState, ArticleScreenActions>
+    store: Store<ArticleScreenState, ArticleScreenAction>
 ) {
 
     StoreView(store) { state ->
 
         if (state.article is ArticleStatus.NotLoadedFor){
-            sendToStore(ArticleScreenActions.LoadFor(state.article.id))()
+            sendToStore(ArticleScreenAction.LoadFor(state.article.id))()
         }
 
         if (state.article is ArticleStatus.ErrorFor){
-            sendToStore(ArticleScreenActions.LoadFor(state.article.id))()
+            sendToStore(ArticleScreenAction.LoadFor(state.article.id))()
         }
 
         val articleViewState = ArticleScreenState.articleViewState.getOrNull(state);
@@ -229,7 +230,7 @@ fun ArticleScreen(
         val articleViewStore = store.forView<ArticleViewState, ArticleViewAction>(
             appState = state,
             stateBuilder = { articleViewState },
-            actionMapper = { ArticleScreenActions.ArticleViewActions(it) }
+            actionMapper = { ArticleScreenAction.ArticleViewActions(it) }
         )
 
         ArticleView(
