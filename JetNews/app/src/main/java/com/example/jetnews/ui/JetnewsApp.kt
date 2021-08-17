@@ -33,6 +33,7 @@ import com.example.jetnews.data.AppContainer
 import com.example.jetnews.framework.*
 import com.example.jetnews.ui.article.ArticleScreenState
 import com.example.jetnews.ui.article.ArticleStatus
+import com.example.jetnews.ui.article.article
 import com.example.jetnews.ui.home.HistoryPostDialogStatus
 import com.example.jetnews.ui.home.HomeScreenState
 import com.example.jetnews.ui.home.PostStatus
@@ -54,7 +55,7 @@ sealed class CurrentScreen{
     object NavigateBack:CurrentScreen()
 }
 
-
+@optics
 data class JetNewsAppState(
     val currentScreen:CurrentScreen,
     val posts: PostStatus,
@@ -159,10 +160,13 @@ fun JetNewsAppReducer():Reducer<JetNewsAppState, JetNewsAppAction, JetNewsEnviro
     when(action){
         is JetNewsAppAction.JetNewActions -> state to emptyFlow()
         is JetNewsAppAction.NavigateTo ->
-            if (action.path.contains("post/")){
-                state.copy(articleScreenState = state.articleScreenState.copy(article = ArticleStatus.NotLoadedFor(action.path.replace("post/",""))))
-            } else {
-                state
+            when{
+                action.path == "home" -> state.copy(posts = PostStatus.NotLoaded)
+                action.path.contains("post/") -> JetNewsAppState.jetNewsState.articleScreenState.article.set(
+                    state,
+                    ArticleStatus.NotLoadedFor(action.path.replace("post/",""))
+                )
+                else -> state
             }.copy(currentScreen = CurrentScreen.Is(action.path)) to emptyFlow()
         is JetNewsAppAction.OpenDrawer -> state.copy(drawerOpened = true) to emptyFlow()
         is JetNewsAppAction.CloseDrawer -> state.copy(drawerOpened = false) to emptyFlow()

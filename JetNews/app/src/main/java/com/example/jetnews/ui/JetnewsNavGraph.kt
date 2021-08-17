@@ -56,6 +56,7 @@ object MainDestinations {
     const val ARTICLE_ID_KEY = "postId"
 }
 
+@optics
 data class JetNewsState(
     val currentScreen:String,
     val posts:PostStatus,
