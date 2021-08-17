@@ -16,11 +16,20 @@
 
 package com.example.jetnews.ui
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.jetnews.JetnewsApplication
+import com.example.jetnews.R
+import com.example.jetnews.model.Post
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,5 +41,30 @@ class MainActivity : AppCompatActivity() {
         setContent {
             JetnewsApp(store)
         }
+
+        lifecycleScope.launchWhenResumed {
+            val scope = this
+            store.state.map { it.share }.distinctUntilChanged().collect {
+                if (it is ShareOption.Share){
+                    sharePost(it.title, it.url)
+                    store.send(JetNewsAppAction.ShareOptionStarted, scope)
+                }
+            }
+        }
     }
+}
+
+/**
+ * Show a share sheet for a post
+ *
+ * @param post to share
+ * @param context Android context to show the share sheet in
+ */
+fun Context.sharePost(title: String, url:String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TITLE, title)
+        putExtra(Intent.EXTRA_TEXT, url)
+    }
+    startActivity(Intent.createChooser(intent, getString(R.string.article_share_post)))
 }

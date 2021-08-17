@@ -428,21 +428,6 @@ private fun FunctionalityNotAvailablePopup(onDismiss: () -> Unit) {
     )
 }
 
-/**
- * Show a share sheet for a post
- *
- * @param post to share
- * @param context Android context to show the share sheet in
- */
-private fun sharePost(post: Post, context: Context) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TITLE, post.title)
-        putExtra(Intent.EXTRA_TEXT, post.url)
-    }
-    context.startActivity(Intent.createChooser(intent, context.getString(R.string.article_share_post)))
-}
-
 //@Preview("Article screen")
 //@Preview("Article screen (dark)", uiMode = UI_MODE_NIGHT_YES)
 //@Preview("Article screen (big font)", fontScale = 1.5f)
