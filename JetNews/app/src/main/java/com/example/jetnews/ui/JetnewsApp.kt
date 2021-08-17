@@ -16,6 +16,8 @@
 
 package com.example.jetnews.ui
 
+import androidx.compose.material.DrawerState
+import androidx.compose.material.DrawerValue
 import androidx.compose.material.Scaffold
 import androidx.compose.material.rememberScaffoldState
 import androidx.compose.runtime.*
@@ -192,11 +194,23 @@ fun JetnewsApp(
             // This top level scaffold contains the app drawer, which needs to be accessible
             // from multiple screens. An event to open the drawer is passed down to each
             // screen that needs it.
-            val scaffoldState = rememberScaffoldState()
 
-            val navBackStackEntry by navController.currentBackStackEntryAsState()
 
             StoreView(store) { state ->
+
+                val drawserState = remember {
+                    DrawerState(DrawerValue.Closed){
+                        if (it == DrawerValue.Closed){
+                            sendToStore(JetNewsAppAction.CloseDrawer)()
+                        }
+                        true
+                    }
+                }
+
+                val scaffoldState = rememberScaffoldState(drawerState = drawserState)
+
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+
                 val currentRoute = navBackStackEntry?.destination?.route
 
                 if (currentRoute != null && state.currentScreen is CurrentScreen.Is && state.currentScreen.path.split("/").first() != currentRoute.split("/").first()){
@@ -233,7 +247,7 @@ fun JetnewsApp(
                             navigateToInterests = sendToStore(JetNewsAppAction.NavigateTo(MainDestinations.INTERESTS_ROUTE)),
                             closeDrawer = sendToStore(JetNewsAppAction.CloseDrawer)
                         )
-                    }
+                    },
                 ) {
 
                     JetNewsAppState.jetNewsState.getOrNull(

@@ -17,6 +17,7 @@
 package com.example.jetnews
 
 import android.app.Application
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.example.jetnews.data.AppContainer
 import com.example.jetnews.data.AppContainerImpl
 import com.example.jetnews.framework.Store
