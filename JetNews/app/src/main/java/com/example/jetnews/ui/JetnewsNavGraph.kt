@@ -161,7 +161,7 @@ fun ComposedJetNewsReducer():Reducer<JetNewsState, JetNewsAction, JetNewsEnviron
             }
         ),
 
-        InterestScreenReducer.pullback(
+        ComposedInterestScreenReducer.pullback(
             stateMapper = JetNewsState.interestsScreenState,
             actionMapper = JetNewsAction.interestScreenActions.action,
             environmentMapper = {
@@ -213,6 +213,10 @@ fun JetNewsReducer():Reducer<JetNewsState, JetNewsAction, JetNewsEnvironment> = 
         action is JetNewsAction.ArticleScreenActions &&
                 action.action is ArticleScreenAction.ExternalShare ->
             state to flowOf(JetNewsAction.ExternalSharePost(action.action.title, action.action.url))
+
+        action is JetNewsAction.InterestScreenActions &&
+                action.action is InterestsScreenAction.OpenDrawer ->
+            state to flowOf(JetNewsAction.ExternalOpenDrawer)
 
         else -> state to emptyFlow()
     }
