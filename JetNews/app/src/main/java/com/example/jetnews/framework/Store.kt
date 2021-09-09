@@ -279,30 +279,30 @@ fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, Stat
         Pair(state, emptyFlow())
     }
 }
-//fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEach(
-//    states:Lens<State, Map<StateId, ViewState>>,
-//    actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
-//    environmentMapper: (AppEnvironment) -> ViewEnvironment
-//): Reducer<State, Action, AppEnvironment> = { state, action, environment, scope ->
-//    val reducer = this
-//    val actionEntry = actionMapper.getOrNull(action)
-//    if (actionEntry != null){
-//        val id = actionEntry.first
-//        val viewAction = actionEntry.second
-//        val stateAccess = states
-//            .compose(Index.map<StateId, ViewState>().index(id))
-//        stateAccess
-//            .getOrNull(state)
-//            ?.let { reducer(it, viewAction, environmentMapper(environment), scope) }
-//            ?.let { (nextState, effect) -> Pair(
-//                stateAccess.set(state, nextState),
-//                effect.map { actionMapper.set(action, id to it) }
-//            ) }
-//            ?: Pair(state, emptyFlow())
-//    } else {
-//        Pair(state, emptyFlow())
-//    }
-//}
+fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEach(
+    states:Lens<State, Map<StateId, ViewState>>,
+    actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
+    environmentMapper: (AppEnvironment) -> ViewEnvironment
+): Reducer<State, Action, AppEnvironment> = { state, action, environment, scope ->
+    val reducer = this
+    val actionEntry = actionMapper.getOrNull(action)
+    if (actionEntry != null){
+        val id = actionEntry.first
+        val viewAction = actionEntry.second
+        val stateAccess = states
+            .compose(Index.map<StateId, ViewState>().index(id))
+        stateAccess
+            .getOrNull(state)
+            ?.let { reducer(it, viewAction, environmentMapper(environment), scope) }
+            ?.let { (nextState, effect) -> Pair(
+                stateAccess.set(state, nextState),
+                effect.map { actionMapper.set(action, id to it) }
+            ) }
+            ?: Pair(state, emptyFlow())
+    } else {
+        Pair(state, emptyFlow())
+    }
+}
 
 fun <State, Action, AppEnvironment> combine(
     vararg reducers: Reducer<State, Action, AppEnvironment>
