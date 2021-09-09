@@ -10,6 +10,38 @@ import kotlinx.coroutines.flow.*
 typealias Effect<Action> = Flow<Action>
 typealias Reducer<State, Action, AppEnvironment> = suspend (State, Action, AppEnvironment, CoroutineScope) -> Pair<State, Effect<Action>>
 
+data class IdentifiedItem<Id,Value>(val id:Id, val value:Value)
+
+typealias IdentifiedList<Id, Value> = List<IdentifiedItem<Id, Value>>
+
+inline fun <Id, Value> List<Value>.toIdentifiedList(
+    idMapper:(Value) -> Id
+):IdentifiedList<Id, Value> = this.map { IdentifiedItem(idMapper(it),  it) }
+
+fun <Id, Value> IdentifiedList<Id, Value>.getById(id:Id):IdentifiedItem<Id,Value>? = this.find { it.id == id }
+
+fun <Id,Value> IdentifiedList<Id,Value>.hasById(id:Id):Boolean = this.any { it.id == id }
+
+fun <Id,Value> IdentifiedList<Id,Value>.mergeSingle(value: IdentifiedItem<Id,Value>):IdentifiedList<Id,Value>{
+    return this.map {
+        if (it.id == value.id)
+            value
+        else
+            it
+    }
+}
+
+fun <Id, Value> IdentifiedList<Id, Value>.identifiedAppend(other:IdentifiedList<Id,Value>):IdentifiedItem<Id,Value>?{
+
+    val newItems = other.filter { this.hasById(it.id) }
+    val itemsToBeMerged = other - newItems
+    val mergedList = this.map {
+        val itemFromOtherList = itemsToBeMerged.getById(it.id)
+        itemFromOtherList ?: it
+    }
+    return (mergedList + newItems) as IdentifiedItem<Id, Value>
+}
+
 class Store<State,  Action> private constructor(
     private val initialState: State,
     private val reducer: suspend (State, Action, CoroutineScope) -> Pair<State, Effect<Action>>
@@ -206,6 +238,29 @@ fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment> Redu
     environmentMapper: (AppEnvironment) -> ViewEnvironment
 ): Reducer<State, Action, AppEnvironment> = pullBack(reducer = this, stateMapper = stateMapper, actionMapper = actionMapper, environmentMapper = environmentMapper)
 
+fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEachOnList(
+    states:Lens<State, IdentifiedList<StateId, ViewState>>,
+    actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
+    environmentMapper: (AppEnvironment) -> ViewEnvironment
+): Reducer<State, Action, AppEnvironment> = { state, action, environment, scope ->
+    val reducer = this
+    val actionEntry = actionMapper.getOrNull(action)
+    if (actionEntry != null){
+        val id = actionEntry.first
+        val viewAction = actionEntry.second
+
+        states.get(state)
+            .getById(id)
+            ?.let { reducer(it.value, viewAction, environmentMapper(environment), scope) }
+            ?.let { (nextState, effect) -> Pair(
+                states.set(state, states.get(state).mergeSingle(IdentifiedItem(id, nextState))),
+                effect.map { actionMapper.set(action, id to it) }
+            ) }
+            ?: Pair(state, emptyFlow())
+    } else {
+        Pair(state, emptyFlow())
+    }
+}
 fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEach(
     states:Lens<State, Map<StateId, ViewState>>,
     actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
