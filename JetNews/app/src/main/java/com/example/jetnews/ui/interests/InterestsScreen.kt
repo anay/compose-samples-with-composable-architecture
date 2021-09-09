@@ -70,6 +70,7 @@ import com.example.jetnews.data.interests.TopicsMap
 import com.example.jetnews.data.interests.impl.FakeInterestsRepository
 import com.example.jetnews.framework.*
 import com.example.jetnews.ui.components.InsetAwareTopAppBar
+import com.example.jetnews.ui.home.PostState
 import com.example.jetnews.ui.theme.JetnewsTheme
 import com.example.jetnews.utils.produceUiState
 import com.example.jetnews.utils.supportWideScreen
@@ -202,37 +203,37 @@ val InterestScreenReducer:Reducer<InterestsScreenState, InterestsScreenAction, I
 
             is InterestsScreenAction.PublicationListLoaded ->
                 TabWithTopicsState(
-                    topics = action.value.map { topic -> topic to TopicItemState<String>(
+                    topics = action.value.map { topic -> TopicItemState<String>(
                         id = topic,
                         title = topic,
                         selected = action.selected.contains(topic)
-                    ) }.toMap()
+                    ) }.toIdentifiedList { it.id }
                 ).let {
                     InterestsScreenState.publicationListState.set(state, it) to emptyFlow()
                 }
 
             is InterestsScreenAction.TopicsLoaded ->
                 TopicListState(
-                    sections = action.value.map { (section, topicStrings) -> section to SectionState(
+                    sections = action.value.map { (section, topicStrings) -> SectionState(
                     title = section,
-                    topics = topicStrings.map { topicName -> topicName to TopicItemState(
+                    topics = topicStrings.map { topicName -> TopicItemState(
                         id = TopicSelection(section, topicName),
                         title = topicName,
                         selected = action.selected.contains(TopicSelection(section, topicName))
                         )
-                    }.toMap()
-                    ) }.toMap()
+                    }.toIdentifiedList { it.id }
+                    ) }.toIdentifiedList { it.title }
                 ).let {
                     InterestsScreenState.topicListState.set(state, it) to emptyFlow()
                 }
 
             is InterestsScreenAction.PeopleListLoaded ->
                 TabWithTopicsState(
-                    topics = action.value.map { topic -> topic to TopicItemState<String>(
+                    topics = action.value.map { topic -> TopicItemState<String>(
                         id = topic,
                         title = topic,
                         selected = action.selected.contains(topic)
-                ) }.toMap()).let {
+                ) }.toIdentifiedList { it.id }).let {
                     InterestsScreenState.peopleListState.set(state, it) to emptyFlow()
                 }
 
@@ -476,14 +477,14 @@ private fun TabContent(
 @optics
 data class SectionState(
     val title:String,
-    val topics:Map<String, TopicItemState<TopicSelection>>
+    val topics:IdentifiedList<TopicSelection, TopicItemState<TopicSelection>>
 ){
     companion object
 }
 
 @optics
 data class TopicListState(
-    val sections: Map<String, SectionState>
+    val sections: IdentifiedList<String, SectionState>
 ){
     companion object
 }
@@ -491,7 +492,7 @@ data class TopicListState(
 @optics
 sealed class SectionItemAction{
     companion object
-    @optics data class TopicItemActions(val action:Pair<String, TopicItemAction<TopicSelection>>):SectionItemAction(){
+    @optics data class TopicItemActions(val action:Pair<TopicSelection, TopicItemAction<TopicSelection>>):SectionItemAction(){
         companion object
     }
 
@@ -522,15 +523,15 @@ fun <TopicId> TopicItemReducer():Reducer<TopicItemState<TopicId>, TopicItemActio
 }
 
 val SectionItemReducer:Reducer<SectionState, SectionItemAction, TopicListEnvironment> =
-        TopicItemReducer<TopicSelection>().forEach(
+        TopicItemReducer<TopicSelection>().forEachOnList(
             states = SectionState.topics,
             actionMapper = SectionItemAction.topicItemActions.action,
-            environmentMapper =  { env -> TopicItemEnvironment<TopicSelection>(
+            environmentMapper =  { env -> TopicItemEnvironment(
                 onToggle = env.onTopicSelect
             ) }
         )
 
-val TopicListReducer:Reducer<TopicListState, TopicListAction, TopicListEnvironment> = SectionItemReducer.forEach(
+val TopicListReducer:Reducer<TopicListState, TopicListAction, TopicListEnvironment> = SectionItemReducer.forEachOnList(
     states = TopicListState.sections,
     actionMapper = TopicListAction.sectionItemActions.action,
     environmentMapper = { it }
@@ -551,35 +552,40 @@ private fun TopicList(
     StoreView(store) { state ->
         LazyColumn(Modifier.navigationBarsPadding()) {
 
-            store.forStatesLazy<SectionState, SectionItemAction, String>(
-                appState = state,
-                states = { it.sections },
-                actionMapper = {id, action -> TopicListAction.SectionItemActions(id to action)}
-            ){ childStore ->
+            items<IdentifiedItem<String, SectionState>>(
+                items = state.sections,
+                key = { item:IdentifiedItem<String, SectionState> -> item.id }
+            ){ item ->
 
-                item {
-                    StoreView(store = childStore) { childState ->
-                        Text(
-                            text = childState.title,
-                            modifier = Modifier
-                                .padding(16.dp)
-                                .semantics { heading() },
-                            style = MaterialTheme.typography.subtitle1
+                val itemStore = store.forView<SectionState, SectionItemAction>(
+                    appState = state,
+                    stateBuilder = { item.value },
+                    actionMapper = { TopicListAction.SectionItemActions(item.id to it) }
+                )
+
+                StoreView(store = itemStore) { childState ->
+                    Text(
+                        text = childState.title,
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .semantics { heading() },
+                        style = MaterialTheme.typography.subtitle1
+                    )
+                    Column {
+                        itemStore.forStatesList<TopicItemState<TopicSelection>, TopicItemAction<TopicSelection>, TopicSelection>(
+                            appState = childState,
+                            states = { it.topics },
+                            actionMapper = {id, action -> SectionItemAction.TopicItemActions(id to action)}
                         )
-                        Column {
-                            childStore.forStates<TopicItemState<TopicSelection>, TopicItemAction<TopicSelection>, String>(
-                                appState = childState,
-                                states = { it.topics },
-                                actionMapper = {id, action -> SectionItemAction.TopicItemActions(id to action)}
-                            )
-                            { topicStore ->
-                                TopicItem(topicStore)
-                                TopicDivider()
-                            }
+                        { topicStore ->
+                            TopicItem(topicStore)
+                            TopicDivider()
                         }
                     }
                 }
+
             }
+
         }
     }
 
@@ -590,7 +596,7 @@ private fun TopicList(
 
 @optics
 data class TabWithTopicsState(
-    val topics: Map<String, TopicItemState<String>>
+    val topics: IdentifiedList<String, TopicItemState<String>>
 ){
     companion object
 }
@@ -608,7 +614,7 @@ class TabWithTopicsEnvironment<TopicId>(
 )
 
 val TabWithTopicsReducer:Reducer<TabWithTopicsState, TabWithTopicsAction, TabWithTopicsEnvironment<String>> =
-    TopicItemReducer<String>().forEach(
+    TopicItemReducer<String>().forEachOnList(
         states = TabWithTopicsState.topics,
         actionMapper = TabWithTopicsAction.topicItemActions.action,
         environmentMapper = {env -> TopicItemEnvironment(
@@ -634,12 +640,12 @@ private fun TabWithTopics(
                 .navigationBarsPadding()
         ) {
 
-            items(items = state.topics.values.toList(),key = {it.id}) { topic ->
+            items(items = state.topics,key = {it.id}) { topic ->
 
                 val store = store.forView<TopicItemState<String>, TopicItemAction<String>>(
                     appState = state,
-                    stateBuilder = { topic },
-                    actionMapper = { action -> TabWithTopicsAction.TopicItemActions(topic.title to action) }
+                    stateBuilder = { topic.value },
+                    actionMapper = { action -> TabWithTopicsAction.TopicItemActions(topic.id to action) }
                 )
                 TopicItem<String>(store)
                 TopicDivider()

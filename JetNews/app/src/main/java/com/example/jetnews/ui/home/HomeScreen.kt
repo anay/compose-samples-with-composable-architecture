@@ -173,44 +173,45 @@ sealed class HistoryPostDialogStatus{
 
 @optics
 data class PostListState(
-    val posts:List<PostState>,
+    val posts:IdentifiedList<String, PostState>,
     val historyDialogOpenStatus: HistoryPostDialogStatus
 ){
     companion object{
 
         val postListTopSectionState:Lens<PostListState, PostListTopSectionState> = Lens(
-            get = { PostListTopSectionState(post = it.posts.get(3)) },
+            get = { PostListTopSectionState(post = it.posts.get(3).value) },
             set = { state, sectionState ->
-                val posts = Index.list<PostState>().index(3).set(state.posts, sectionState.post)
+                val posts = Index.list<IdentifiedItem<String, PostState>>().index(3).set(state.posts, IdentifiedItem(sectionState.post.post.id, sectionState.post))
                 state.copy(posts = posts)
             }
         )
 
-        val postListSimpleItems:Lens<PostListState, Map<String, PostState>> = Lens(
-            get = { state -> (0..1).map { state.posts[it] }.map { it.post.id to it }.toMap() },
-            set = { state, map -> PostListState.posts.set(
-                source = state,
-                focus = state.posts.map { postState -> map.getOrElse(postState.post.id, { postState }) }
-            ) }
+        val postListSimpleItems:Lens<PostListState, IdentifiedList<String, PostState>> = Lens(
+            get = { state -> (0..1).map { state.posts[it] } },
+            set = { state, list ->
+               state.copy(
+                   posts = state.posts.identifiedAppend(list)
+               )
+            }
         )
 
-        val postListPopularItems:Lens<PostListState, Map<String, PostState>> = Lens(
-            get = { state -> (2..6).map { state.posts[it] }.map { it.post.id to it }.toMap() },
-            set = { state, map -> PostListState.posts.set(
-                source = state,
-                focus = state.posts.map { postState -> map.getOrElse(postState.post.id, { postState }) }
-            ) }
+        val postListPopularItems:Lens<PostListState, IdentifiedList<String, PostState>> = Lens(
+            get = { state -> (2..6).map { state.posts[it] } },
+            set = { state, map -> state.copy(
+                    posts = state.posts.identifiedAppend(map)
+                )
+            }
         )
 
-        val postListHistoryItems:Lens<PostListState, Map<String, PostCardHistoryState>> = Lens(
-            get = { state -> (7..9).map { state.posts[it] }.map { it.post.id to PostCardHistoryState(
+        val postListHistoryItems:Lens<PostListState, IdentifiedList<String, PostCardHistoryState>> = Lens(
+            get = { state -> (7..9).map { state.posts[it].value }.map { PostCardHistoryState(
                 post = it,
                 openDialog = state.historyDialogOpenStatus.isOpenFor(it.post.id)
-            ) }.toMap() },
+            ) }.toIdentifiedList { it.post.post.id } },
             set = { state, map -> PostListState.posts.set(
                 source = state,
-                focus = state.posts.map { postState -> map.get(postState.post.id)?.post ?: postState }
-            ).copy(historyDialogOpenStatus = map.values.find { it.openDialog }?.let { HistoryPostDialogStatus.OpenedFor(it.post.post.id) } ?: HistoryPostDialogStatus.NotOpen) }
+                focus = state.posts.identifiedAppend(map.map { it.value.post }.toIdentifiedList { it.post.id })
+            ).copy(historyDialogOpenStatus = map.find { it.value.openDialog }?.let { HistoryPostDialogStatus.OpenedFor(it.id) } ?: HistoryPostDialogStatus.NotOpen) }
         )
 
     }
@@ -243,19 +244,19 @@ sealed class PostListAction{
 
 fun PostListReducer():Reducer<PostListState, PostListAction, HomeScreenEnvironment> =
     combine(
-        PostCardHistoryReducer.forEach(
+        PostCardHistoryReducer.forEachOnList(
             states = PostListState.postListHistoryItems,
             actionMapper = PostListAction.postListHistorySectionActions.action,
             environmentMapper = {}
         ),
-        PostCardPopularReducer.forEach(
+        PostCardPopularReducer.forEachOnList(
             states = PostListState.postListPopularItems,
             actionMapper = PostListAction.postListPopularSectionActions.action,
             environmentMapper = {
                 Unit
             }
         ),
-        PostCardSimpleReducer.forEach(
+        PostCardSimpleReducer.forEachOnList(
             states = PostListState.postListSimpleItems,
             environmentMapper = { env ->
                 PostCardSimpleEnvironment(
@@ -399,7 +400,7 @@ private fun PostListSimpleSection(
 
     StoreView(store) { state ->
         Column {
-            store.forStates<PostState, PostCardSimpleAction, String>(
+            store.forStatesList<PostState, PostCardSimpleAction, String>(
                 appState = state,
                 states = { PostListState.postListSimpleItems.get(it) },
                 actionMapper = {id, action-> PostListAction.PostListSimpleSectionActions(id to action) }
@@ -452,13 +453,13 @@ private fun PostListPopularSection(
             )
 
             LazyRow(modifier = Modifier.padding(end = 16.dp)) {
-                items(PostListState.postListPopularItems.get(state).values.toList()) { post ->
+                items(PostListState.postListPopularItems.get(state)) { post ->
 
                     PostCardPopular(
                         store.forView(
                             appState = state,
-                            stateBuilder = { post },
-                            actionMapper = { PostListAction.PostListPopularSectionActions(post.post.id to it) }
+                            stateBuilder = { post.value },
+                            actionMapper = { PostListAction.PostListPopularSectionActions(post.id to it) }
                         ),
                         Modifier.padding(start = 16.dp, bottom = 16.dp)
                     )
@@ -501,7 +502,7 @@ private fun PostListHistorySection(
     StoreView(store) { state ->
         Column {
 
-            store.forStates<PostCardHistoryState, PostCardHistoryAction, String>(
+            store.forStatesList<PostCardHistoryState, PostCardHistoryAction, String>(
                 appState = state,
                 states = { PostListState.postListHistoryItems.get(it) },
                 actionMapper = {id, action -> PostListAction.PostListHistorySectionActions(id to action)}
@@ -549,7 +550,7 @@ private fun PostListDivider() {
 
 
 sealed class PostStatus{
-    data class Loaded(val posts:List<PostState>):PostStatus()
+    data class Loaded(val posts:IdentifiedList<String, PostState>):PostStatus()
     object NotLoaded:PostStatus()
     object Loading:PostStatus()
     data class Error(val exception:Throwable):PostStatus()
@@ -638,7 +639,7 @@ fun HomeScreenReducer():Reducer<HomeScreenState, HomeScreenAction, HomeScreenEnv
             }
         is HomeScreenAction.PostLoaded -> action.posts.map { post ->
             PostState(favorite = action.favourites.contains(post.id), post = post)
-        }.let {
+        }.toIdentifiedList { it.post.id }.let {
             state.copy(posts = PostStatus.Loaded(it)) to emptyFlow()
         }
 

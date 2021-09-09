@@ -31,7 +31,7 @@ fun <Id,Value> IdentifiedList<Id,Value>.mergeSingle(value: IdentifiedItem<Id,Val
     }
 }
 
-fun <Id, Value> IdentifiedList<Id, Value>.identifiedAppend(other:IdentifiedList<Id,Value>):IdentifiedItem<Id,Value>?{
+fun <Id, Value> IdentifiedList<Id, Value>.identifiedAppend(other:IdentifiedList<Id,Value>):IdentifiedList<Id,Value>{
 
     val newItems = other.filter { this.hasById(it.id) }
     val itemsToBeMerged = other - newItems
@@ -39,7 +39,7 @@ fun <Id, Value> IdentifiedList<Id, Value>.identifiedAppend(other:IdentifiedList<
         val itemFromOtherList = itemsToBeMerged.getById(it.id)
         itemFromOtherList ?: it
     }
-    return (mergedList + newItems) as IdentifiedItem<Id, Value>
+    return (mergedList + newItems)
 }
 
 class Store<State,  Action> private constructor(
@@ -90,6 +90,24 @@ class Store<State,  Action> private constructor(
         environment = Unit
     )
 
+    @Composable
+    fun <ViewState, ViewAction, StateId> forStatesList(
+        appState: State,
+        states:(State) -> IdentifiedList<StateId, ViewState>,
+        actionMapper: (StateId, ViewAction) -> Action,
+        content:@Composable (Store<ViewState, ViewAction>) -> Unit
+    ) {
+        val stateValues = states(appState)
+        for ((id, viewState) in stateValues){
+            val store = forView<ViewState, ViewAction>(
+                appState = appState,
+                stateBuilder = { viewState },
+                actionMapper = { actionMapper(id, it) }
+            )
+            content(store)
+        }
+
+    }
     @Composable
     fun <ViewState, ViewAction, StateId> forStates(
         appState: State,
@@ -261,30 +279,30 @@ fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, Stat
         Pair(state, emptyFlow())
     }
 }
-fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEach(
-    states:Lens<State, Map<StateId, ViewState>>,
-    actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
-    environmentMapper: (AppEnvironment) -> ViewEnvironment
-): Reducer<State, Action, AppEnvironment> = { state, action, environment, scope ->
-    val reducer = this
-    val actionEntry = actionMapper.getOrNull(action)
-    if (actionEntry != null){
-        val id = actionEntry.first
-        val viewAction = actionEntry.second
-        val stateAccess = states
-            .compose(Index.map<StateId, ViewState>().index(id))
-        stateAccess
-            .getOrNull(state)
-            ?.let { reducer(it, viewAction, environmentMapper(environment), scope) }
-            ?.let { (nextState, effect) -> Pair(
-                stateAccess.set(state, nextState),
-                effect.map { actionMapper.set(action, id to it) }
-            ) }
-            ?: Pair(state, emptyFlow())
-    } else {
-        Pair(state, emptyFlow())
-    }
-}
+//fun <State, Action, ViewState, ViewAction, AppEnvironment, ViewEnvironment, StateId> Reducer<ViewState, ViewAction, ViewEnvironment>.forEach(
+//    states:Lens<State, Map<StateId, ViewState>>,
+//    actionMapper:Optional<Action, Pair<StateId, ViewAction>>,
+//    environmentMapper: (AppEnvironment) -> ViewEnvironment
+//): Reducer<State, Action, AppEnvironment> = { state, action, environment, scope ->
+//    val reducer = this
+//    val actionEntry = actionMapper.getOrNull(action)
+//    if (actionEntry != null){
+//        val id = actionEntry.first
+//        val viewAction = actionEntry.second
+//        val stateAccess = states
+//            .compose(Index.map<StateId, ViewState>().index(id))
+//        stateAccess
+//            .getOrNull(state)
+//            ?.let { reducer(it, viewAction, environmentMapper(environment), scope) }
+//            ?.let { (nextState, effect) -> Pair(
+//                stateAccess.set(state, nextState),
+//                effect.map { actionMapper.set(action, id to it) }
+//            ) }
+//            ?: Pair(state, emptyFlow())
+//    } else {
+//        Pair(state, emptyFlow())
+//    }
+//}
 
 fun <State, Action, AppEnvironment> combine(
     vararg reducers: Reducer<State, Action, AppEnvironment>
